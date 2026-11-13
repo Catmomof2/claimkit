@@ -1,0 +1,8 @@
+SAMPLE DOCUMENT — missed appointment (labelled test fixture, not a real shipment)
+
+BOL # SAMPLE-1003 — Lakewood, WA to Seattle, WA
+Delivery appointment: 2026-11-07 10:00
+Missed appointment: the receiver missed the appointment — dock closed,
+no fault of the carrier. Driver was turned away.
+Missed appointment fee: $250.00 per the contract fee schedule.
+A new delivery was scheduled for the next day.

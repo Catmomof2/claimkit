@@ -1,0 +1,7 @@
+SAMPLE DOCUMENT — loading delay (labelled test fixture, not a real shipment)
+
+BOL # SAMPLE-1002 — Spokane, WA to Boise, ID
+Carrier: Sample Carrier LLC
+Loading delay: loading delayed 4 hours at the shipper dock, 2026-11-05.
+Free time 1 hour. 3 billable hours at $65/hr = $195.00.
+Shipper confirmed the delay in writing. Receipt attached.
