@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+.next/
+out/
+dist/
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.env
+.env.local
+.env.*.local
+*.egg-info/
+
+# Misc
+.DS_Store
+*.log
+coverage/
+.pytest_cache/
+.mypy_cache/
+uploads/
+*.pdf
+!docs/**/*.pdf
