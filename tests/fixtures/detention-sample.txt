@@ -1,0 +1,9 @@
+SAMPLE DOCUMENT — detention (labelled test fixture, not a real shipment)
+
+BOL # SAMPLE-1001 — Tacoma, WA to Portland, OR
+Carrier: Sample Carrier LLC
+Driver arrived at receiver dock: 2026-11-04 08:00
+Driver departed: 2026-11-04 13:30
+Detention: driver waited 5.5 hours at the dock. Free time is 2 hours.
+Detention charge: $262.50 (3.5 billable hours at $75/hr)
+Signed POD attached. Please reimburse detention time.
