@@ -90,16 +90,24 @@ Environment variables (never commit real values; use `.env`, gitignored):
 | `DATABASE_URL` | PostgreSQL DSN; unset → in-memory sample store |
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` | Auth |
 | `R2_ENDPOINT` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | File storage |
-| `LLM_API_KEY` | Document extraction (when the stub is replaced) |
+| `LLM_API_KEY` | Document extraction — legacy fallback name for the Gemini key |
+| `GEMINI_API_KEY` | Google Gemini API key for document extraction/classification (preferred; falls back to `LLM_API_KEY`) |
+| `GEMINI_MODEL` | Gemini model name, default `gemini-3.8-flash` |
 | `REDIS_URL` | Celery broker |
 | `STRIPE_SECRET_KEY` / `STRIPE_PRICE_ID_*` | Billing (Days 76–90) |
 | `NEXT_PUBLIC_API_URL` | Frontend → backend base URL |
 
 ## What is a stub in this starter, and why
 
-- **Document extraction** (`document_processing/extractor.py`) is
-  rule-based (regex over text) so the pipeline runs without an LLM key
-  or a paid API. Swap in the LLM behind `extract_charges()` when ready.
+- **Document extraction** (`document_processing/extractor.py`) calls Google
+  Gemini (`document_processing/gemini_client.py`) when `GEMINI_API_KEY`
+  (or `LLM_API_KEY`) is set, with a JSON response schema and the
+  rule-based extractor as fallback on any Gemini failure — or with no
+  key at all, so the pipeline still runs without an LLM key or a paid
+  API. The classifier (`document_processing/classifier.py`) works the
+  same way: Gemini when configured, filename + keyword heuristics
+  otherwise. Both stamp `source: "gemini" | "rule-based"` on their
+  results so callers can tell which path produced them.
 - **Storage / database** run in-memory with sample data when
   `DATABASE_URL` is unset, so `uvicorn main:app` works with zero setup.
   Wire SQLAlchemy + R2 when deploying.

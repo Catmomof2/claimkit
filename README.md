@@ -167,10 +167,11 @@ searches evidence by shipment, date, type, amount, and keyword. See
 ## AI document classification (starter)
 
 `backend/document_processing/classifier.py` labels documents BOL /
-receipt / photo / invoice / email with a confidence score, using
-filename + keyword heuristics — clearly marked as a starter
-implementation. Production replaces it with an LLM / vision-model
-call behind the same signature.
+receipt / photo / invoice / email with a confidence score. With
+`GEMINI_API_KEY` set it asks Google Gemini (model from `GEMINI_MODEL`,
+default `gemini-3.8-flash`); without a key — or on any Gemini failure —
+it falls back to filename + keyword heuristics. Results carry
+`source: "gemini" | "rule-based"` so callers can tell which path ran.
 
 ## Expense matching & rules engine
 
@@ -204,7 +205,8 @@ documentation, marketing website, converting pilots to paying customers).
 
 ## Contributing / licence
 
-MIT — see `LICENSE`. This is a starter scaffold: document extraction is a
-rule-based stub ready to be replaced by an LLM call, storage is local /
+MIT — see `LICENSE`. This is a starter scaffold: document extraction and
+classification call Google Gemini when `GEMINI_API_KEY` is set and fall
+back to a rule-based implementation otherwise, storage is local /
 in-memory until Supabase + R2 are configured, and payments are not wired
 up until Stripe is configured.

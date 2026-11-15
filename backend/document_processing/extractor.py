@@ -1,15 +1,87 @@
-"""Document extraction — rule-based stub with an LLM-ready interface.
+"""Document extraction — Google Gemini LLM with a rule-based fallback.
 
-Production replaces ``extract_charges()`` with an LLM API call behind the
-same function signature, so callers (API, Celery jobs, tests) never change.
-The stub uses regexes over plain text so the pipeline runs without an
-LLM key, a paid API, or network access.
+When a Gemini API key is configured (``GEMINI_API_KEY``, falling back
+to ``LLM_API_KEY``), ``extract_charges()`` calls Gemini behind the
+same function signature, so callers (API, Celery jobs, tests) never
+change. On ANY Gemini failure — no key, HTTP/API error, malformed
+JSON, empty response — extraction falls back to the rule-based stub
+below, so the pipeline runs without an LLM key, a paid API, or
+network access, and a model failure never loses the document.
 
 Never silently accept low-confidence fields: every extracted charge
 carries a confidence score, and callers should flag < 0.7 for review.
+The ``source`` field on the result says which path produced it:
+``"gemini"`` or ``"rule-based"``.
 """
+import logging
 import re
 from dataclasses import dataclass, field
+
+from document_processing import gemini_client
+
+logger = logging.getLogger(__name__)
+
+CHARGE_TYPES = (
+    "detention",
+    "loading_delay",
+    "unloading_delay",
+    "additional_delivery",
+    "missed_appointment",
+    "unexpected_transport",
+)
+
+# Bound the prompt: long documents are truncated rather than sent whole.
+_MAX_PROMPT_CHARS = 12000
+
+_EXTRACTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "shipment_reference": {"type": "string"},
+        "charges": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": list(CHARGE_TYPES)},
+                    "amount": {"type": "number"},
+                    "description": {"type": "string"},
+                    "confidence": {"type": "number"},
+                    "evidence_snippet": {"type": "string"},
+                },
+                "required": ["type", "description", "confidence"],
+            },
+        },
+    },
+    "required": ["charges"],
+}
+
+_EXTRACTION_PROMPT = """You extract recoverable freight charges from a shipping document
+(bill of lading, proof of delivery, receipt, invoice, or email) for a
+freight broker's claims recovery system.
+
+Return a JSON object with:
+- "shipment_reference": the BOL / PRO / load / shipment reference, or null if none is shown.
+- "charges": an array of charges, each with "type", "amount", "description",
+  "confidence", and "evidence_snippet".
+
+Rules:
+- Use ONLY these charge types: detention, loading_delay, unloading_delay,
+  additional_delivery, missed_appointment, unexpected_transport.
+- Only $-prefixed amounts count as money. Bare numbers (dates, BOL numbers,
+  hours) are not amounts.
+- Hourly rates like $65/hr or $75/hr are NOT charge totals. Return the
+  charge total explicitly (e.g. the total detention fee), never the rate.
+- "amount" is the charge total in dollars, or null if the document states
+  no total for that charge.
+- "confidence" is 0 to 1. Score below 0.7 when the charge or amount is
+  unclear — a human must review those.
+- "evidence_snippet" is a short verbatim quote from the document that
+  supports the charge.
+- If the document contains no recoverable charge, return an empty "charges" array.
+
+Document:
+{text}
+"""
 
 
 @dataclass
@@ -26,6 +98,8 @@ class ExtractionResult:
     shipment_reference: str | None = None
     charges: list[ExtractedCharge] = field(default_factory=list)
     raw_text_excerpt: str = ""
+    # "gemini" when the LLM produced this result, "rule-based" otherwise.
+    source: str = "rule-based"
 
 
 _AMOUNT_RE = re.compile(r"\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)")
@@ -64,7 +138,80 @@ def _first_amount(text: str) -> float | None:
 
 
 def extract_charges(text: str) -> ExtractionResult:
-    """Extract recoverable charges from document text (stub)."""
+    """Extract recoverable charges from document text.
+
+    Gemini when a key is configured; the rule-based stub otherwise, and
+    on any Gemini failure. Never raises for a bad model response — the
+    fallback always runs.
+    """
+    if not text or not text.strip():
+        return ExtractionResult(raw_text_excerpt="")
+
+    if gemini_client.is_configured():
+        try:
+            return _extract_with_gemini(text)
+        except Exception as exc:  # noqa: BLE001 — any Gemini failure falls back
+            logger.warning("Gemini extraction failed, falling back to rule-based: %s", exc)
+
+    return _extract_rule_based(text)
+
+
+def _extract_with_gemini(text: str) -> ExtractionResult:
+    """Call Gemini and validate its structured output.
+
+    Raises :class:`gemini_client.GeminiError` (or ``ValueError``) on a
+    bad response; the caller falls back to the rule-based stub.
+    """
+    prompt = _EXTRACTION_PROMPT.format(text=text[:_MAX_PROMPT_CHARS])
+    parsed = gemini_client.generate_json(prompt, _EXTRACTION_SCHEMA)
+
+    charges_raw = parsed.get("charges")
+    if not isinstance(charges_raw, list):
+        raise gemini_client.GeminiError("Gemini response has no 'charges' list.")
+
+    charges: list[ExtractedCharge] = []
+    for item in charges_raw:
+        if not isinstance(item, dict):
+            continue
+        charge_type = item.get("type")
+        if charge_type not in CHARGE_TYPES:
+            continue  # never invent a charge type outside the known set
+        amount = item.get("amount")
+        if amount is not None:
+            try:
+                amount = float(amount)
+            except (TypeError, ValueError):
+                amount = None
+        try:
+            confidence = float(item.get("confidence", 0.5))
+        except (TypeError, ValueError):
+            confidence = 0.5
+        confidence = max(0.0, min(1.0, confidence))
+        charges.append(
+            ExtractedCharge(
+                type=charge_type,
+                amount=amount,
+                description=str(item.get("description", ""))[:500],
+                confidence=confidence,
+                evidence_snippet=str(item.get("evidence_snippet", ""))[:500],
+            )
+        )
+
+    reference = parsed.get("shipment_reference")
+    if reference is not None and not isinstance(reference, str):
+        reference = str(reference)
+    return ExtractionResult(
+        shipment_reference=reference or None,
+        charges=charges,
+        raw_text_excerpt=text[:500],
+        source="gemini",
+    )
+
+
+def _extract_rule_based(text: str) -> ExtractionResult:
+    """Rule-based stub: regexes over plain text (the original v0.1.0
+    extractor, unchanged). Runs whenever no Gemini key is configured
+    and whenever the Gemini call fails."""
     if not text or not text.strip():
         return ExtractionResult(raw_text_excerpt="")
 
