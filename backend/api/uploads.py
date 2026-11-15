@@ -54,5 +54,8 @@ async def upload_document(
         "storage": stored,
         "classification": {"label": classification.label,
                            "confidence": classification.confidence,
-                           "note": "Starter heuristic classifier — see document_processing/classifier.py"},
+                           "source": classification.source,
+                           "note": ("Gemini LLM classifier"
+                                    if classification.source == "gemini"
+                                    else "Starter heuristic classifier — see document_processing/classifier.py")},
     }
