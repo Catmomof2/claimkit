@@ -5,8 +5,16 @@ Docs:  http://localhost:8000/docs
 
 Without DATABASE_URL the service runs on the in-memory sample store in
 services/claims_service.py, so the endpoints work with zero setup.
+
+CORS: the dashboard calls this API from the browser, so the allowed
+origins come from the CORS_ORIGINS env var (comma-separated). Default is
+local development only — set it to the deployed frontend's origin on the
+host (for example https://claimkit.vercel.app).
 """
+import os
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from api import audit as audit_router
 from api import claims as claims_router
@@ -18,10 +26,24 @@ from api import library as library_router
 from api import shipments as shipments_router
 from api import uploads as uploads_router
 
+
+def _cors_origins() -> list[str]:
+    raw = os.environ.get("CORS_ORIGINS", "http://localhost:3000")
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
 app = FastAPI(
     title="ClaimKit API",
     description="Automated business claims recovery for freight brokers.",
     version="0.1.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins(),
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH"],
+    allow_headers=["*"],
 )
 
 app.include_router(shipments_router.router)
