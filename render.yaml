@@ -1,0 +1,20 @@
+# Render Blueprint for the ClaimKit API (FastAPI backend).
+# Create it from the Render dashboard with New > Blueprint, pointed at
+# this repo. The frontend is deployed separately on Vercel; once its URL
+# is known, set CORS_ORIGINS on this service to that URL (Render
+# restarts the service when an env var changes). No database is defined:
+# the starter runs on the in-memory sample store, and DATABASE_URL is
+# not read by the code yet.
+services:
+  - type: web
+    name: claimkit-api
+    env: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: CORS_ORIGINS
+        value: http://localhost:3000
