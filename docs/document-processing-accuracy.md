@@ -7,7 +7,7 @@
 > `tests/backend/test_document_processing.py` after any extractor change;
 > the suite must pass before shipping that change.
 
-## The Gemini path (added 2026-11-15, unmeasured against a live key)
+## The Gemini path (added 2026-11-15, measured live same day)
 
 `backend/document_processing/extractor.py` now calls Google Gemini
 (`backend/document_processing/gemini_client.py`, model from
@@ -18,10 +18,40 @@ schema so the model returns structured output, and both fall back to
 the rule-based / heuristic implementation on any Gemini failure — or
 with no key at all. Results carry `source: "gemini" | "rule-based"`.
 
-The numbers below were measured with the rule-based stub only. **No
-live-key accuracy measurement has been run yet** — the mocked tests in
-`tests/backend/test_gemini_extraction.py` prove the wiring and the
-fallback, not the model's real-world accuracy.
+### Live run, 2026-11-15 (model `gemini-3.8-flash`, merged main `45b1ca0`)
+
+Run against the three labelled samples with the real API key. The
+pipeline (Gemini-or-fallback) got every sample right — type, amount,
+and shipment reference, 3/3 on each. **But only 1 of the 3
+extractions actually came from Gemini**; the other two fell back to
+the rule-based stub after the model failed.
+
+| Sample document | Expected | Gemini result (live) | Pipeline result |
+| --- | --- | --- | --- |
+| `detention-sample.txt` | detention $262.50, SAMPLE-1001 | ✅ detention $262.50, confidence 0.98, ref SAMPLE-1001 (134s) | ✅ correct |
+| `loading-delay-sample.txt` | loading_delay $195.00, SAMPLE-1002 | ❌ no result — HTTP 503 "high demand" after ~271s, fell back | ✅ correct via stub ($195.00, conf 0.6) |
+| `missed-appointment-sample.txt` | missed_appointment $250.00, SAMPLE-1003 | ❌ no result — helper error after ~1.5s, fell back | ✅ correct via stub ($250.00, conf 0.6) |
+
+Gemini-only numbers on this set: type recall 1/3, type precision 1/1
+(the one charge Gemini produced was correct), amount 1/1. Pipeline
+numbers (Gemini-or-fallback): type recall 3/3, amount 3/3, reference
+3/3. Do not quote the 3/3 figures as Gemini accuracy — they are the
+fallback doing its job.
+
+Latency is the real finding. Live Gemini calls took 114–271 seconds
+or failed outright (one 503, one fast helper error whose cause was not
+fully visible in the truncated log). The client timeout is 30 seconds,
+so while the model is this overloaded, production calls would almost
+always fall back to the rule-based path. That is the safety net
+working, not a bug — but it means Gemini is not really doing the work
+yet. Re-run this check when the model is less loaded before drawing
+any conclusion about its accuracy.
+
+Classification on this run: 2/3 from Gemini (both labelled "invoice",
+confidence 0.8 and 0.6), 1/3 heuristic fallback (labelled "receipt",
+confidence 0.7). There are no expected classification labels for
+these samples, so classification is unscored here — the "invoice"
+labels are recorded, not endorsed.
 
 ### How to re-run the accuracy check with a live key
 
@@ -46,7 +76,7 @@ fallback, not the model's real-world accuracy.
 | `loading-delay-sample.txt` | loading_delay | ✅ yes | $195.00 |
 | `missed-appointment-sample.txt` | missed_appointment | ✅ yes | $250.00 |
 
-## Accuracy on this set
+## Accuracy on this set (rule-based stub, 2026-11-13)
 
 - Charge-type recall: **3 / 3 (100%)** — every expected type found.
 - Charge-type precision: **3 / 3 (100%)** — no extra types found in
